@@ -8,36 +8,49 @@ import express from "express";
 import httpProxy from "http-proxy";
 import * as tar from "tar";
 
-// Migrate deprecated CLAWDBOT_* env vars → OPENCLAW_* so existing Railway deployments
-// keep working. Users should update their Railway Variables to use the new names.
-for (const suffix of ["PUBLIC_PORT", "STATE_DIR", "WORKSPACE_DIR", "GATEWAY_TOKEN", "CONFIG_PATH"]) {
-  const oldKey = `CLAWDBOT_${suffix}`;
-  const newKey = `OPENCLAW_${suffix}`;
-  if (process.env[oldKey] && !process.env[newKey]) {
-    process.env[newKey] = process.env[oldKey];
-    // Best-effort compatibility shim for old Railway templates.
-    // Intentionally no warning: Railway templates can still set legacy keys and warnings are noisy.
+/** @type {Set<string>} */
+const warnedDeprecatedEnv = new Set();
+
+/**
+ * Prefer `primaryKey`, fall back to `deprecatedKey` with a one-time warning.
+ * @param {string} primaryKey
+ * @param {string} deprecatedKey
+ */
+function getEnvWithShim(primaryKey, deprecatedKey) {
+  const primary = process.env[primaryKey]?.trim();
+  if (primary) return primary;
+
+  const deprecated = process.env[deprecatedKey]?.trim();
+  if (!deprecated) return undefined;
+
+  if (!warnedDeprecatedEnv.has(deprecatedKey)) {
+    console.warn(
+      `[deprecation] ${deprecatedKey} is deprecated. Use ${primaryKey} instead.`,
+    );
+    warnedDeprecatedEnv.add(deprecatedKey);
   }
-  // Avoid forwarding legacy variables into OpenClaw subprocesses.
-  // OpenClaw logs a warning when deprecated CLAWDBOT_* variables are present.
-  delete process.env[oldKey];
+
+  return deprecated;
 }
 
-// Railway injects PORT at runtime and routes traffic to that port.
-// Do not force a different public port in the container image, or the service may
-// boot but the Railway domain will be routed to a different port.
-//
-// OPENCLAW_PUBLIC_PORT is kept as an escape hatch for non-Railway deployments.
-const PORT = Number.parseInt(process.env.PORT ?? process.env.OPENCLAW_PUBLIC_PORT ?? "3000", 10);
+// Railway deployments sometimes inject PORT, but this template is designed to default
+// to 8080 (including custom domains) unless explicitly overridden.
+// Prefer OPENCLAW_PUBLIC_PORT (or legacy CLAWDBOT_PUBLIC_PORT) over PORT.
+const PORT = Number.parseInt(
+  getEnvWithShim("OPENCLAW_PUBLIC_PORT", "CLAWDBOT_PUBLIC_PORT") ??
+    process.env.PORT ??
+    "8080",
+  10,
+);
 
 // State/workspace
 // OpenClaw defaults to ~/.openclaw.
 const STATE_DIR =
-  process.env.OPENCLAW_STATE_DIR?.trim() ||
+  getEnvWithShim("OPENCLAW_STATE_DIR", "CLAWDBOT_STATE_DIR") ||
   path.join(os.homedir(), ".openclaw");
 
 const WORKSPACE_DIR =
-  process.env.OPENCLAW_WORKSPACE_DIR?.trim() ||
+  getEnvWithShim("OPENCLAW_WORKSPACE_DIR", "CLAWDBOT_WORKSPACE_DIR") ||
   path.join(STATE_DIR, "workspace");
 
 // Protect /setup with a user-provided password.
@@ -46,7 +59,10 @@ const SETUP_PASSWORD = process.env.SETUP_PASSWORD?.trim();
 // Gateway admin token (protects OpenClaw gateway + Control UI).
 // Must be stable across restarts. If not provided via env, persist it in the state dir.
 function resolveGatewayToken() {
-  const envTok = process.env.OPENCLAW_GATEWAY_TOKEN?.trim();
+  const envTok = getEnvWithShim(
+    "OPENCLAW_GATEWAY_TOKEN",
+    "CLAWDBOT_GATEWAY_TOKEN",
+  );
   if (envTok) return envTok;
 
   const tokenPath = path.join(STATE_DIR, "gateway.token");
@@ -84,7 +100,7 @@ function clawArgs(args) {
 }
 
 function resolveConfigCandidates() {
-  const explicit = process.env.OPENCLAW_CONFIG_PATH?.trim();
+  const explicit = getEnvWithShim("OPENCLAW_CONFIG_PATH", "CLAWDBOT_CONFIG_PATH");
   if (explicit) return [explicit];
 
   return [path.join(STATE_DIR, "openclaw.json")];
@@ -905,6 +921,7 @@ app.get("/setup/api/debug", requireSetupAuth, async (_req, res) => {
       stateDir: STATE_DIR,
       workspaceDir: WORKSPACE_DIR,
       configured: isConfigured(),
+      configPath: configPath(),
       configPathResolved: configPath(),
       configPathCandidates: typeof resolveConfigCandidates === "function" ? resolveConfigCandidates() : null,
       internalGatewayHost: INTERNAL_GATEWAY_HOST,
