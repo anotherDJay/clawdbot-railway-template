@@ -49,6 +49,19 @@ RUN apt-get update \
     tini \
     python3 \
     python3-venv \
+    libgtk-3-0 \
+    libdbus-glib-1-2 \
+    libasound2 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libxtst6 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libxkbcommon0 \
+    libx11-xcb1 \
   && rm -rf /var/lib/apt/lists/*
 
 # `openclaw update` expects pnpm. Provide it in the runtime image.
@@ -78,6 +91,9 @@ RUN printf '%s\n' '#!/usr/bin/env bash' 'exec node /openclaw/dist/entry.js "$@"'
 
 # Pre-install plugins (so they survive container rebuilds)
 RUN openclaw plugins install @askjo/camoufox-browser || true
+
+# Fetch Camoufox browser binaries and set permissions
+RUN npx camoufox fetch && chmod -R 755 /root/.cache/camoufox || true
 
 COPY src ./src
 
