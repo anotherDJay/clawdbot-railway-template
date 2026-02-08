@@ -989,6 +989,14 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   // Don't start gateway unless configured; proxy will ensure it starts.
 });
 
+// Auto-start gateway on boot if already configured
+if (isConfigured()) {
+  console.log("[wrapper] config found, auto-starting gateway...");
+  ensureGatewayRunning()
+    .then(() => console.log("[wrapper] gateway auto-started"))
+    .catch((err) => console.error("[wrapper] gateway auto-start failed:", err));
+}
+
 server.on("upgrade", async (req, socket, head) => {
   if (!isConfigured()) {
     socket.destroy();
