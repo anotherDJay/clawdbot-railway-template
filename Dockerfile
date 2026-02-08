@@ -49,6 +49,8 @@ RUN apt-get update \
     tini \
     python3 \
     python3-venv \
+    curl \
+    git \
   && rm -rf /var/lib/apt/lists/*
 
 # `openclaw update` expects pnpm. Provide it in the runtime image.
@@ -62,6 +64,11 @@ ENV NPM_CONFIG_CACHE=/data/npm-cache
 ENV PNPM_HOME=/data/pnpm
 ENV PNPM_STORE_DIR=/data/pnpm-store
 ENV PATH="/data/npm/bin:/data/pnpm:${PATH}"
+
+# Install safe-skill-search (skill registry search tool)
+RUN curl -fsSL https://github.com/jo-inc/safe-skill-search/releases/latest/download/safe-skill-search-x86_64-unknown-linux-gnu.tar.gz \
+  | tar -xz -C /usr/local/bin \
+  && chmod +x /usr/local/bin/safe-skill-search
 
 WORKDIR /app
 
